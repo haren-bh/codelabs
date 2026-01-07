@@ -14,36 +14,46 @@ def run_command(command, error_msg, capture=True):
             print(f"Error details: {e.stderr}")
         return None
 
-def get_project_number(project_id):
-    """Retrieves the project number for a given project ID."""
-    print(f"🔍 Fetching project number for: {project_id}...")
-    cmd = ["gcloud", "projects", "describe", project_id, "--format=json"]
-    output = run_command(cmd, "Failed to fetch project details.")
-    if output:
-        project_data = json.loads(output)
-        return project_data.get("projectNumber")
-    return None
+def setup_service_account(project_id):
+    """Ensures the service account exists and has the necessary roles."""
+    sa_name = "adkvisualbuilder"
+    sa_email = f"{sa_name}@{project_id}.iam.gserviceaccount.com"
+    
+    # 1. Check if Service Account exists
+    print(f"🔍 Checking if service account {sa_email} exists...")
+    check_cmd = ["gcloud", "iam", "service-accounts", "describe", sa_email, f"--project={project_id}", "--format=json"]
+    
+    if run_command(check_cmd, "Service account not found, attempting to create...", capture=True) is None:
+        print(f"🛠️ Creating service account: {sa_name}...")
+        create_cmd = [
+            "gcloud", "iam", "service-accounts", "create", sa_name,
+            f"--display-name=ADK Visual Builder Service Account",
+            f"--project={project_id}"
+        ]
+        run_command(create_cmd, "Failed to create service account.")
+    else:
+        print(f"✅ Service account {sa_name} already exists.")
 
-def setup_iam_permissions(project_id, project_number):
-    """Grants the default compute service account the required roles."""
-    # This is the account that was causing the PERMISSION_DENIED error
-    service_account = f"{project_number}-compute@developer.gserviceaccount.com"
+    # 2. Define roles to assign
     roles = [
         "roles/cloudbuild.builds.builder",
         "roles/iam.serviceAccountUser",
-        "roles/storage.admin"
+        "roles/storage.admin",
+        "roles/aiplatform.user",  # Vertex AI User role
+        "roles/run.admin"         # Ensure it can manage Cloud Run
     ]
     
-    print(f"🛠️  Setting up IAM permissions for {service_account}...")
+    print(f"🔐 Assigning IAM roles to {sa_email}...")
     for role in roles:
-        cmd = [
+        bind_cmd = [
             "gcloud", "projects", "add-iam-policy-binding", project_id,
-            f"--member=serviceAccount:{service_account}",
+            f"--member=serviceAccount:{sa_email}",
             f"--role={role}",
             "--quiet"
         ]
-        run_command(cmd, f"Failed to assign role {role}")
-    print("✅ IAM permissions updated.")
+        run_command(bind_cmd, f"Failed to assign role {role}")
+    
+    return sa_email
 
 def deploy_agent():
     # 1. Load configuration
@@ -60,13 +70,13 @@ def deploy_agent():
     service_name = "agent1service"
     app_name = "agent1app"
 
-    # 2. Resolve Project Number and Fix Permissions
-    project_number = get_project_number(project_id)
-    if not project_number:
+    # 2. Setup Service Account and Permissions
+    sa_email = setup_service_account(project_id)
+    if not sa_email:
         return
-    setup_iam_permissions(project_id, project_number)
 
     # 3. Execute Deployment Command
+    # Added --service_account flag to the deployment
     command = [
         "adk", "deploy", "cloud_run",
         f"--project={project_id}",
@@ -75,12 +85,14 @@ def deploy_agent():
         f"--app_name={app_name}",
         f"--artifact_service_uri=memory://",
         f"--with_ui",
-        agent_path
+        agent_path,
+        f"--",
+        f"--service-account={sa_email}",
     ]
 
-    print(f"🚀 Deploying agent '{app_name}' to {project_id}...")
+    print(f"🚀 Deploying agent '{app_name}' to {project_id} using {sa_email}...")
     
-    # capture_output=False is used so you can see the ADK/gcloud build logs in real-time
+    # capture_output=False shows real-time logs
     success = run_command(command, "Deployment failed.", capture=False)
     
     if success:
@@ -88,3 +100,4 @@ def deploy_agent():
 
 if __name__ == "__main__":
     deploy_agent()
+    
