@@ -88,15 +88,13 @@ def deploy_agent():
         agent_path,
         f"--",
         f"--service-account={sa_email}",
+        f"--build-service-account=projects/{project_id}/serviceAccounts/{sa_email}",
     ]
 
     print(f"🚀 Deploying agent '{app_name}' to {project_id} using {sa_email}...")
     
     # capture_output=False shows real-time logs
-    success = run_command(command, "Deployment failed.", capture=False)
-    
-    if success:
-        print("\n✨ Deployment completed successfully!")
+    success = run_command(command, "ERROR", capture=False)
 
 if __name__ == "__main__":
     deploy_agent()
