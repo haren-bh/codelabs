@@ -40,7 +40,9 @@ def setup_service_account(project_id):
         "roles/iam.serviceAccountUser",
         "roles/storage.admin",
         "roles/aiplatform.user",  # Vertex AI User role
-        "roles/run.admin"         # Ensure it can manage Cloud Run
+        "roles/run.admin",         # Ensure it can manage Cloud Run
+        "roles/logging.logWriter",       # Missing this causes the error you see
+        "roles/artifactregistry.writer",
     ]
     
     print(f"🔐 Assigning IAM roles to {sa_email}...")
